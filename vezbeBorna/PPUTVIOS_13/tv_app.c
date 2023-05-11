@@ -152,7 +152,8 @@ uint32_t videoStreamHandle = 0;
 bool valueinarray(uint16_t val, uint16_t arr[], size_t n);
 uint16_t videoPidArray[7] = {0,0,0,0,0,0,0};
 uint16_t audioPidArray[7] = {0,0,0,0,0,0,0};
-uint16_t videoPidCounter, audioPidCounter = 0;
+uint16_t programNumberArray[7] = {0,0,0,0,0,0,0};
+uint16_t videoPidCounter, audioPidCounter, programNumberCounter = 0;
 
 int main(int32_t argc, char** argv)
 {
@@ -637,8 +638,10 @@ int32_t PMTparse(uint8_t *buffer){
             }
 
             if(pmt[pmt_count].stream_type[j] == 3){
-                if(!valueinarray(pmt[pmt_count].elemetary_pid[j],audioPidArray,7))
+                if(!valueinarray(pmt[pmt_count].program_number, programNumberArray,7))
                 {
+		    programNumberArray[programNumberCounter] = pmt[pmt_count].program_number;
+		    programNumberCounter++;
                     audioPidArray[audioPidCounter] = pmt[pmt_count].elemetary_pid[j];
                     printf("Added audioPid: %d \n ", audioPidArray[audioPidCounter]);
                     audioPidCounter++;
