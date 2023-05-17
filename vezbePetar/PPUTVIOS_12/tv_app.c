@@ -4,14 +4,15 @@
 #include <pthread.h>
 #include "errno.h"
 #include "tdp_api.h"
-#include "xml_parser.h"
 #include <string.h>
 #include <stdint.h>
 #include <directfb.h>
+#include "xml_parser.h"
 #include <linux/input.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
+#include "config_struct.h"
 
 #define NUM_EVENTS  5
 #define CONFIG_FILE "config.xml"
@@ -122,7 +123,6 @@ typedef struct{
     uint16_t elemetary_pid[15];
     uint16_t ES_info_lenght[15];
 }Pmt;
-
 Pmt pmt[16]; 
 int pmt_count = 0;
  
@@ -133,7 +133,8 @@ struct PmtTable     pmtTableArray[16];
 struct Stream       stream;
 struct ChannelInfo  channelArray[8];
 int pmtTableCount = 0;
-Config config;
+struct Config config;
+struct MyConfigStruct config2;
 static pthread_t remote;
 int main_running = 1;
 static int32_t inputFileDesc;
@@ -161,10 +162,9 @@ int main(int32_t argc, char** argv)
 
     parseConfigXML(CONFIG_FILE, &config);
     
-    //printf("aPid: %d, vPid: %d\n", config.aPid, config.vPid);
+    config_init(&config2);
     
-        
-	struct timespec lockStatusWaitTime;
+    struct timespec lockStatusWaitTime;
 	struct timeval now;
     
     gettimeofday(&now,NULL);
@@ -218,7 +218,7 @@ int main(int32_t argc, char** argv)
     };
     Demux_Free_Filter(playerHandle, filterHandle);
     Demux_Unregister_Section_Filter_Callback(mySecFilterCallback);
-    printf("++EOParsing++\n");
+ 
 
     timer_init();
     /* initialize DirectFB */   
@@ -251,12 +251,15 @@ int main(int32_t argc, char** argv)
                        /*flip flags*/0));
 
     
-    Player_Stream_Create(playerHandle,sourceHandle,config.vPid,VIDEO_TYPE_MPEG2,&videoStreamHandle);
-    Player_Stream_Create(playerHandle,sourceHandle,config.aPid,AUDIO_TYPE_MPEG_AUDIO,&audioStreamHandle);
-    
+    /* 
+    Player_Stream_Create(playerHandle,sourceHandle,config2.init_channel.video_pid,VIDEO_TYPE_MPEG2,&videoStreamHandle);
+    Player_Stream_Create(playerHandle,sourceHandle,config2.init_channel.audio_pid,AUDIO_TYPE_MPEG_AUDIO,&audioStreamHandle); 
+    */
+    Player_Stream_Create(playerHandle,sourceHandle,VIDEO_PID,VIDEO_TYPE_MPEG2,&videoStreamHandle);
+    Player_Stream_Create(playerHandle,sourceHandle,AUDIO_PID,AUDIO_TYPE_MPEG_AUDIO,&audioStreamHandle);
+
+
     pthread_create(&remote, NULL, &remoteThreadTask, NULL);
-    int count;
-    for(count=0;count<7;count++){ printf("audioPidArray[{%d}]:{%d} \n",count,audioPidArray[count]);}
     while(main_running);
 
     Player_Stream_Remove(playerHandle,sourceHandle,videoStreamHandle);
@@ -546,15 +549,20 @@ static void *remoteThreadTask() {
 
                 case 64: {
                     if(volume>1){volume--;printf("Volume minus \n");
-                    drawPressedButton();
+                    volumeManager();
                     } 
                     break;
                     
                 }
                 case 63: {
                     if(volume<100){volume++;printf("Volume plus \n");
-                    drawPressedButton();
+                    volumeManager();
                     }
+                    break;
+                }
+
+                case 358: {
+                    drawPressedButton();
                     break;
                 }
 
@@ -618,11 +626,9 @@ int32_t PMTparse(uint8_t *buffer){
                     audioPidCounter++;
                 }
             }
-                    
-                
+        }
 
 
-            }
 }
 
 void timer_init(){
@@ -661,39 +667,35 @@ void clear_screen_notify(){
 }
 
 int32_t drawPressedButton(){
-    char channel_str[2];
-    sprintf( channel_str, "%d", channel );
+    clear_screen();
+    char channel_number_string[11];
+    sprintf( channel_number_string, "Channel %d", channel );
+    int start_of_text_y = screenHeight/2+50;
     
-    
-    char *ch = "Ch. ";
+    char apid_str[4]  = {0,0,0,0};
+    char vpid_str[4]  = {0,0,0,0};
+    sprintf( apid_str, "%ld", audioPidArray[channel-1]);
+    sprintf( vpid_str, "%ld", videoPidArray[channel-1]);
 
-    //DFBCHECK(primary->SetColor(primary, 0x00,0x00,0x00,0xff));
-	//DFBCHECK(primary->FillRectangle(primary,0,0,screenWidth,screenHeight));
+    
+    //crni pravokutnik
+    DFBCHECK(primary->SetColor(primary, 0x00,0x00,0x00,0xff));
+    DFBCHECK(primary->FillRectangle(primary,0,screenHeight/2,screenWidth,screenHeight/3));
+
+
+    DFBCHECK(primary->SetColor(primary, 0xff,0xff,0xff,0xff));
    
-	DFBCHECK(dfbInterface->CreateImageProvider(dfbInterface, "krug.png", &provider));
-	DFBCHECK(provider->GetSurfaceDescription(provider, &surfaceDesc));
-	DFBCHECK(dfbInterface->CreateSurface(dfbInterface, &surfaceDesc, &logoSurface));
-	DFBCHECK(provider->RenderTo(provider, logoSurface, NULL));
-	provider->Release(provider);
-	DFBCHECK(logoSurface->GetSize(logoSurface, &logoWidth, &logoHeight));
-	DFBCHECK(primary->Blit(primary, logoSurface,
-                           /*source region, NULL to blit the whole surface*/ NULL,
-                           /*destination x coordinate of the upper left corner of the image*/125,
-                           /*destination y coordinate of the upper left corner of the image*/25));
-
-    DFBCHECK(primary->SetColor(primary, 0x00,0x00,0xff,0xff));
-   
-    DFBCHECK(primary->DrawString(primary,ch,4,screenWidth/10,screenHeight/10, DSTF_CENTER));
-    if(channel==0){
-        sprintf(channel_str, "%d", 1);
-        DFBCHECK(primary->DrawString(primary,channel_str,1,screenWidth/10 + 50,screenHeight/10, DSTF_CENTER));       
-    }
-    DFBCHECK(primary->DrawString(primary,channel_str,1,screenWidth/10 + 50,screenHeight/10, DSTF_CENTER));
+    //tekst    - 1red
+    DFBCHECK(primary->SetColor(primary, 0xff,0xff,0xff,0xff));
+    //DFBCHECK(primary->DrawString(primary,channel_string,8,screenWidth/3+220,start_of_text_y+30, DSTF_CENTER));
+    DFBCHECK(primary->DrawString(primary,channel_number_string,9,screenWidth/3+220,start_of_text_y+30, DSTF_CENTER));
+            // - 2red
+    DFBCHECK(primary->DrawString(primary,apid_str,4,screenWidth/3+150,start_of_text_y+110, DSTF_CENTER));
+    DFBCHECK(primary->DrawString(primary,vpid_str,4,screenWidth/3+370,start_of_text_y+110, DSTF_CENTER));
+            // - 3.red
+    DFBCHECK(primary->DrawString(primary,"audio PID",-1,screenWidth/3+150,start_of_text_y+200, DSTF_CENTER));
+    DFBCHECK(primary->DrawString(primary,"video PID",-1,screenWidth/3+400,start_of_text_y+200, DSTF_CENTER));
     
-    
-
-    volumeManager();
-
 
     DFBCHECK(primary->Flip(primary,NULL,0));
     timer_reset();
@@ -703,28 +705,30 @@ int32_t drawPressedButton(){
 
 void volumeManager(){
 
-    //x_start i y_start oznacavaju gornji lijevi rub najvišeg volume boxa
-    int x_start = screenWidth/10 * 9;
-    int y_start  = 200;
-
-    //Crta sivu pozadinu
-    DFBCHECK(primary->SetColor(primary, 0x80,0x80,0x80,0xf0));
-    DFBCHECK(primary->FillRectangle(primary,x_start-50,y_start-50,screenWidth/10-50,500));
-    
-    //Crni ispis vrijednosti volumea
-    char volume_str[3];
-    sprintf( volume_str, "%d", volume );
+    clear_screen();
+    //Crta crnu pozadinu
     DFBCHECK(primary->SetColor(primary, 0x00,0x00,0x00,0xff));
-    if(volume==100){
-        DFBCHECK(primary->DrawString(primary,volume_str,3,x_start + 20,y_start+430, DSTF_CENTER));
+    DFBCHECK(primary->FillRectangle(primary,0,0.85*screenHeight,screenWidth,screenHeight/10));
+    DFBCHECK(primary->SetColor(primary, 0xff,0xff,0xff,0xff));
+
+
+    //iznos volumea
+    char volume_str[2];
+    sprintf( volume_str, "%d", volume );
+    char *percentage = "%";
+    if(volume<10){
+        DFBCHECK(primary->DrawString(primary,volume_str,1,0.05*screenWidth,0.91*screenHeight, DSTF_CENTER));
     }
-    else if(volume<10){
-        DFBCHECK(primary->DrawString(primary,volume_str,1,x_start + 20,y_start+430, DSTF_CENTER));
+    else if(volume==100){
+        DFBCHECK(primary->DrawString(primary,volume_str,3,0.05*screenWidth,0.91*screenHeight, DSTF_CENTER));
     }
     else{
-        DFBCHECK(primary->DrawString(primary,volume_str,2,x_start + 20,y_start+430, DSTF_CENTER));
+        DFBCHECK(primary->DrawString(primary,volume_str,2,0.05*screenWidth,0.91*screenHeight, DSTF_CENTER));
     }
-    
+
+    // %
+    DFBCHECK(primary->DrawString(primary,percentage,1,0.10*screenWidth,0.91*screenHeight, DSTF_CENTER));
+
     if(volume==100){
         drawVolume(10);
     }
@@ -757,39 +761,27 @@ void volumeManager(){
     }
     if(volume<=10){
         drawVolume(11);
-        
     }
-    
-
+    DFBCHECK(primary->Flip(primary,NULL,0));
+    timer_reset();
+    return;
 }
 
-void drawVolume(int boxesNumber){
+void drawVolume(int boxesNumber){   
 
+    int volume_bar_size = 0.8*screenWidth;
     Player_Volume_Set(playerHandle,volume*10000000);
-    int x_start = screenWidth/10 * 9;
-    int y_start  = 200;
-    int difference = 40;
-    int i = 0;
-
-    //nacrtaj 10-x blijedih i x punih - Ako je 11, crta 10 praznih
-    if(boxesNumber==11){
-            for(i=0;i<10;i++){
-            DFBCHECK(primary->SetColor(primary, 0x00,0x00,0xff,0x08));
-            DFBCHECK(primary->FillRectangle(primary,x_start,y_start+i*difference,50,20));
-        }
-    }
-    else
-    {
-        DFBCHECK(primary->SetColor(primary, 0x00,0x00,0xff,0x08));
-        for(i = 0; i<10-boxesNumber; i++){
-            DFBCHECK(primary->FillRectangle(primary,x_start,y_start+i*difference,50,20));
-        }
-        DFBCHECK(primary->SetColor(primary, 0x00,0x00,0xff,0xff));
-        for(i = 10-boxesNumber; i<10; i++ )
-        {
-            DFBCHECK(primary->FillRectangle(primary,x_start,y_start+i*difference,50,20));
-        }
-    }
+    DFBCHECK(primary->SetColor(primary, 0x00,0x00,0x00,0xff));
+    DFBCHECK(primary->FillRectangle(primary,0.15*screenWidth,0.85*screenHeight,volume_bar_size,screenHeight/10));
+    DFBCHECK(primary->SetColor(primary, 0xff,0xff,0xff,0xff));
+        
+        //bijela crta
+    DFBCHECK(primary->FillRectangle(primary,0.175*screenWidth,0.89*screenHeight,volume_bar_size,screenHeight*0.02));
     
-
+        //volume 
+    
+    if(boxesNumber!=11)
+    {DFBCHECK(primary->FillRectangle(primary,0.175*screenWidth,0.87*screenHeight,volume_bar_size*boxesNumber/10,screenHeight*0.06));}
+    
+    return;
 }
